@@ -1,0 +1,6 @@
+[package]
+name = "phase-diagrams"
+version = "0.1.0"
+authors = ["Max Tyler <mtyler88@gmail.com>"]
+
+[dependencies]

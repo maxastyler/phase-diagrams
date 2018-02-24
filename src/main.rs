@@ -1,11 +1,13 @@
 extern crate imageproc;
 extern crate image;
 extern crate nalgebra;
+extern crate rayon;
 
 use std::fs::File;
 use std::path::Path;
 use nalgebra::Vector2;
 use std::f64::consts::PI;
+use rayon::prelude::*;
 
 use imageproc::drawing::*;
 
@@ -20,6 +22,12 @@ fn rk4_integrate(r: &Vector2<f64>, f: &Vec<&Fn(Vector2<f64>) -> f64>, h: f64) ->
 fn v2t(v: Vector2<f64>) -> (f32, f32) {(v[0] as f32*127.32+400.0, v[1] as f32*127.32+400.0)}
 fn qdot(r: Vector2<f64>) -> f64 { r[1] }
 fn pdot(r: Vector2<f64>) -> f64 { -r[0].sin() }
+fn map_val(x: f64, a: (f64, f64), b: (f64, f64)) -> f64 {
+    (b.1-b.0)/(a.1-a.0)*(x-a.0)+b.0 
+}
+fn map_point(x: Vector2<f64>, a: ((f64, f64), (f64, f64)), b: ((f64, f64), (f64, f64))) -> (f32, f32) {
+    (map_val(x[0], a.0, b.0) as f32, map_val(x[1], a.1, b.1) as f32)    
+}
 
 fn dist(p1: (f32, f32), p2: (f32, f32)) -> f32 {
     ((p2.0-p1.0).powf(2.0)+(p2.1-p1.1).powf(2.0)).sqrt()
@@ -54,8 +62,14 @@ impl <'a>PhasePos<'a> {
             None => x,
         }
     }
+
     fn reset(&mut self) {
         self.cur_pos = self.pos;
+    }
+
+    fn new_pos(&mut self, p: Vector2<f64>) {
+        self.pos = p;
+        self.cur_pos = p;
     }
 }
 
@@ -64,7 +78,7 @@ impl <'a>Iterator for PhasePos<'a> {
     fn next(&mut self) -> Option<Vector2<f64>> {
         let mut new_pos = rk4_integrate(&self.cur_pos, &self.vel, 0.01);
         new_pos[0] = self.wrap(new_pos[0]);
-        self.pos = new_pos;
+        self.cur_pos = new_pos;
         Some(new_pos)
     }
 }
@@ -75,24 +89,25 @@ fn main() {
     let n_line = 40;
 
     let mut img = image::DynamicImage::new_rgb8(imgx, imgy);
-    let ref mut fout = File::create("phase_gif/phase.png").unwrap();
-    for frame in 0..100 {
-        let p = (2.0*PI*f64::from(frame)/100.0).sin()*1.3;
-        let mut img = image::DynamicImage::new_rgb8(imgx, imgy);
-        let ref mut fout = File::create(format!("phase_gif/phase.{:03}.png", frame)).unwrap();
-        for i in 0..n_line {
-            let pos = f64::from(i)/(f64::from(n_line)) *2.0 * PI + (f64::from(frame)/100.0)*2.0*PI/(f64::from(n_line)) ;
-            let system = PhasePos::new_bounded(Vector2::new(pos, p), (-PI, PI), vec!(&qdot, &pdot));
-            let positions: Vec<(f32, f32)> = system.take(20000).map(v2t).collect();
-            let z_pos = positions.iter().zip(positions.iter().skip(1));
+    (0..100).into_par_iter()
+        .for_each(|frame| {
+            let p = (2.0*PI*f64::from(frame)/100.0).sin()*1.3;
+            let mut img = image::DynamicImage::new_rgb8(imgx, imgy);
+            let ref mut fout = File::create(format!("phase_gif/phase.{:03}.png", frame)).unwrap();
+            for i in 0..n_line {
+                let pos = f64::from(i)/(f64::from(n_line)) *2.0 * PI + (f64::from(frame)/100.0)*2.0*PI/(f64::from(n_line)) ;
+                let system = PhasePos::new_bounded(Vector2::new(pos, p), (-PI, PI), vec!(&qdot, &pdot));
+                let positions: Vec<(f32, f32)> = system.take(20000).map(v2t).collect();
+                let z_pos = positions.iter().zip(positions.iter().skip(1));
 
-            for (p1, p2) in z_pos {
-                if dist(*p1, *p2) < 200.0 {
-                    let r=(p2.1.abs()/1000.0*255.0) as u8;
-                    draw_line_segment_mut(&mut img, *p1, *p2, image::Rgba([r, 0, 255, 255]));
+                for (p1, p2) in z_pos {
+                    if dist(*p1, *p2) < 200.0 {
+                        let r=(p2.1.abs()/1000.0*255.0) as u8;
+                        draw_line_segment_mut(&mut img, *p1, *p2, image::Rgba([255, 0, 0, 255]));
+                    }
                 }
             }
+            img.save(fout, image::PNG);
         }
-        img.save(fout, image::PNG);
-    }
+    )
 }

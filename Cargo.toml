@@ -7,3 +7,4 @@ authors = ["Max Tyler <mtyler88@gmail.com>"]
 image="*"
 imageproc="*"
 nalgebra="*"
+rayon="*"

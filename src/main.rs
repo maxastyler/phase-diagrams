@@ -9,26 +9,36 @@ use std::f64::consts::PI;
 
 use imageproc::drawing::*;
 
-fn rk4_integrate(r: &Vector2<f64>, f: (&Fn(Vector2<f64>) -> f64, &Fn(Vector2<f64>) -> f64), h: f64) -> Vector2<f64> {
-    let k1 = Vector2::new(f.0(*r), f.1(*r));
-    let k2 = Vector2::new(f.0(*r+(h/2.0)*k1), f.1(*r+(h/2.0)*k1));
-    let k3 = Vector2::new(f.0(*r+(h/2.0)*k2), f.1(*r+(h/2.0)*k2));
-    let k4 = Vector2::new(f.0(*r+h*k3), f.1(*r+h*k3));
+fn rk4_integrate(r: &Vector2<f64>, f: &Vec<&Fn(Vector2<f64>) -> f64>, h: f64) -> Vector2<f64> {
+    let k1 = Vector2::new(f[0](*r), f[1](*r));
+    let k2 = Vector2::new(f[0](*r+(h/2.0)*k1), f[1](*r+(h/2.0)*k1));
+    let k3 = Vector2::new(f[0](*r+(h/2.0)*k2), f[1](*r+(h/2.0)*k2));
+    let k4 = Vector2::new(f[0](*r+h*k3), f[1](*r+h*k3));
     r+(h/6.0)*(k1+2.0*k2+2.0*k3+k4)
 }
 
-struct PhasePos {
-    pos: Vector2<f64>,
-    bounds: Option<(f64, f64)>,
-    bounds_l: f64,
+fn v2t(v: Vector2<f64>) -> (f32, f32) {(v[0] as f32*127.32+400.0, v[1] as f32*127.32+400.0)}
+fn qdot(r: Vector2<f64>) -> f64 { r[1] }
+fn pdot(r: Vector2<f64>) -> f64 { -r[0].sin() }
+
+fn dist(p1: (f32, f32), p2: (f32, f32)) -> f32 {
+    ((p2.0-p1.0).powf(2.0)+(p2.1-p1.1).powf(2.0)).sqrt()
 }
 
-impl PhasePos {
-    fn new(p: Vector2<f64>) -> PhasePos {
-        PhasePos{pos: p, bounds: None, bounds_l: 0.0}
+struct PhasePos<'a> {
+    pos: Vector2<f64>,
+    cur_pos: Vector2<f64>,
+    bounds: Option<(f64, f64)>,
+    bounds_l: f64,
+    vel: Vec<&'a Fn(Vector2<f64>) -> f64>,
+}
+
+impl <'a>PhasePos<'a> {
+    fn new(p: Vector2<f64>, v: Vec<&'a Fn(Vector2<f64>) -> f64>) -> PhasePos<'a> {
+        PhasePos{pos: p, bounds: None, bounds_l: 0.0, cur_pos: p, vel: v}
     }
-    fn new_bounded(p: Vector2<f64>, b: (f64, f64)) -> PhasePos {
-        PhasePos{pos: p, bounds: Some(b), bounds_l: b.1-b.0}
+    fn new_bounded(p: Vector2<f64>, b: (f64, f64), v: Vec<&'a Fn(Vector2<f64>) -> f64>) -> PhasePos<'a> {
+        PhasePos{pos: p, bounds: Some(b), bounds_l: b.1-b.0, cur_pos: p, vel: v}
     } 
     fn wrap(&mut self, x: f64) -> f64 {
         match self.bounds {
@@ -44,12 +54,15 @@ impl PhasePos {
             None => x,
         }
     }
+    fn reset(&mut self) {
+        self.cur_pos = self.pos;
+    }
 }
 
-impl Iterator for PhasePos {
+impl <'a>Iterator for PhasePos<'a> {
     type Item = Vector2<f64>;
     fn next(&mut self) -> Option<Vector2<f64>> {
-        let mut new_pos = rk4_integrate(&self.pos, (&|x| x[1], &|x| -(x[0].sin())), 0.01);
+        let mut new_pos = rk4_integrate(&self.cur_pos, &self.vel, 0.01);
         new_pos[0] = self.wrap(new_pos[0]);
         self.pos = new_pos;
         Some(new_pos)
@@ -59,14 +72,27 @@ impl Iterator for PhasePos {
 fn main() {
     let imgx=800;
     let imgy=800;
+    let n_line = 40;
 
     let mut img = image::DynamicImage::new_rgb8(imgx, imgy);
-    let ref mut fout = File::create("phase.png").unwrap();
-    let system = PhasePos::new_bounded(Vector2::new(1.0, 0.0), (0.0, 2.0*PI));
-    for i in system.take(100) {
-        println!("{}", i);
-    }
+    let ref mut fout = File::create("phase_gif/phase.png").unwrap();
+    for frame in 0..100 {
+        let p = (2.0*PI*f64::from(frame)/100.0).sin()*1.3;
+        let mut img = image::DynamicImage::new_rgb8(imgx, imgy);
+        let ref mut fout = File::create(format!("phase_gif/phase.{:03}.png", frame)).unwrap();
+        for i in 0..n_line {
+            let pos = f64::from(i)/(f64::from(n_line)) *2.0 * PI + (f64::from(frame)/100.0)*2.0*PI/(f64::from(n_line)) ;
+            let system = PhasePos::new_bounded(Vector2::new(pos, p), (-PI, PI), vec!(&qdot, &pdot));
+            let positions: Vec<(f32, f32)> = system.take(20000).map(v2t).collect();
+            let z_pos = positions.iter().zip(positions.iter().skip(1));
 
-    //draw_line_segment_mut(&mut img, (0.0, 0.0), (100.0, 100.0), image::Rgba([1000, 10, 10, 10]));
-    //img.save(fout, image::PNG);
+            for (p1, p2) in z_pos {
+                if dist(*p1, *p2) < 200.0 {
+                    let r=(p2.1.abs()/1000.0*255.0) as u8;
+                    draw_line_segment_mut(&mut img, *p1, *p2, image::Rgba([r, 0, 255, 255]));
+                }
+            }
+        }
+        img.save(fout, image::PNG);
+    }
 }

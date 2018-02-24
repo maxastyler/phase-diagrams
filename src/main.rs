@@ -20,8 +20,9 @@ fn rk4_integrate(r: &Vector2<f64>, f: &Vec<&Fn(Vector2<f64>) -> f64>, h: f64) ->
 }
 
 fn v2t(v: Vector2<f64>) -> (f32, f32) {(v[0] as f32*127.32+400.0, v[1] as f32*127.32+400.0)}
-fn qdot(r: Vector2<f64>) -> f64 { r[1] }
-fn pdot(r: Vector2<f64>) -> f64 { -r[0].sin() }
+fn pendulum_qdot(r: Vector2<f64>) -> f64 { r[1] }
+fn pendulum_pdot(r: Vector2<f64>) -> f64 { -r[0].sin() }
+fn attractor_pdot(r: Vector2<f64>) -> f64 { -r[0].sin()-r[1] }
 fn map_val(x: f64, a: (f64, f64), b: (f64, f64)) -> f64 {
     (b.1-b.0)/(a.1-a.0)*(x-a.0)+b.0 
 }
@@ -86,23 +87,23 @@ impl <'a>Iterator for PhasePos<'a> {
 fn main() {
     let imgx=800;
     let imgy=800;
-    let n_line = 40;
+    let n_line = 50;
 
     let mut img = image::DynamicImage::new_rgb8(imgx, imgy);
     (0..100).into_par_iter()
         .for_each(|frame| {
-            let p = (2.0*PI*f64::from(frame)/100.0).sin()*1.3;
             let mut img = image::DynamicImage::new_rgb8(imgx, imgy);
             let ref mut fout = File::create(format!("phase_gif/phase.{:03}.png", frame)).unwrap();
             for i in 0..n_line {
-                let pos = f64::from(i)/(f64::from(n_line)) *2.0 * PI + (f64::from(frame)/100.0)*2.0*PI/(f64::from(n_line)) ;
-                let system = PhasePos::new_bounded(Vector2::new(pos, p), (-PI, PI), vec!(&qdot, &pdot));
-                let positions: Vec<(f32, f32)> = system.take(20000).map(v2t).collect();
+                let p = map_val(i as f64 + f64::from(frame)/100.0, (0.0, n_line as f64), (-5.0, 5.0));
+                let system = PhasePos::new_bounded(Vector2::new(0.0, p), (-PI, PI), vec!(&pendulum_qdot, &pendulum_pdot));
+                let positions: Vec<(f32, f32)> = system.take(20000).map(
+                    |p|{map_point(p, ((-PI, PI), (-4.0, 4.0)), ((0.0, imgx as f64),(0.0, imgy as f64) ))} 
+                    ).collect();
                 let z_pos = positions.iter().zip(positions.iter().skip(1));
 
                 for (p1, p2) in z_pos {
                     if dist(*p1, *p2) < 200.0 {
-                        let r=(p2.1.abs()/1000.0*255.0) as u8;
                         draw_line_segment_mut(&mut img, *p1, *p2, image::Rgba([255, 0, 0, 255]));
                     }
                 }

@@ -5,6 +5,7 @@ extern crate nalgebra;
 use std::fs::File;
 use std::path::Path;
 use nalgebra::Vector2;
+use std::f64::consts::PI;
 
 use imageproc::drawing::*;
 
@@ -26,15 +27,32 @@ impl PhasePos {
     fn new(p: Vector2<f64>) -> PhasePos {
         PhasePos{pos: p, bounds: None, bounds_l: 0.0}
     }
-    fn new_bounded(p: Vector2(f64), b: (f64, f64)) -> PhasePos {
+    fn new_bounded(p: Vector2<f64>, b: (f64, f64)) -> PhasePos {
         PhasePos{pos: p, bounds: Some(b), bounds_l: b.1-b.0}
+    } 
+    fn wrap(&mut self, x: f64) -> f64 {
+        match self.bounds {
+            Some(b) => {
+                let mut y = x;
+                loop {
+                    if y<b.0 { y+=self.bounds_l; }
+                    else if y>b.1 { y-=self.bounds_l; }
+                    else { break; }
+                }
+                y
+            },
+            None => x,
+        }
     }
 }
 
 impl Iterator for PhasePos {
     type Item = Vector2<f64>;
     fn next(&mut self) -> Option<Vector2<f64>> {
-        Some(Vector2::new(1.0, 2.0))
+        let mut new_pos = rk4_integrate(&self.pos, (&|x| x[1], &|x| -(x[0].sin())), 0.01);
+        new_pos[0] = self.wrap(new_pos[0]);
+        self.pos = new_pos;
+        Some(new_pos)
     }
 }
 
@@ -44,8 +62,11 @@ fn main() {
 
     let mut img = image::DynamicImage::new_rgb8(imgx, imgy);
     let ref mut fout = File::create("phase.png").unwrap();
+    let system = PhasePos::new_bounded(Vector2::new(1.0, 0.0), (0.0, 2.0*PI));
+    for i in system.take(100) {
+        println!("{}", i);
+    }
 
     //draw_line_segment_mut(&mut img, (0.0, 0.0), (100.0, 100.0), image::Rgba([1000, 10, 10, 10]));
     //img.save(fout, image::PNG);
-    println!("{}", (-1.23)%0.23);
 }

@@ -94,17 +94,25 @@ fn main() {
         .for_each(|frame| {
             let mut img = image::DynamicImage::new_rgb8(imgx, imgy);
             let ref mut fout = File::create(format!("phase_gif/phase.{:03}.png", frame)).unwrap();
+            //Iterate through each line in the phase diagram
             for i in 0..n_line {
+                // Find the p value of the point; all q values are the same
+                // The p value changes at each frame
                 let p = map_val(i as f64 + f64::from(frame)/100.0, (0.0, n_line as f64), (-5.0, 5.0));
                 let system = PhasePos::new_bounded(Vector2::new(0.0, p), (-PI, PI), vec!(&pendulum_qdot, &pendulum_pdot));
-                let positions: Vec<(f32, f32)> = system.take(20000).map(
-                    |p|{map_point(p, ((-PI, PI), (-4.0, 4.0)), ((0.0, imgx as f64),(0.0, imgy as f64) ))} 
+                let raw_positions: Vec<Vector2<f64>> = system.take(20000).collect();
+                // Calculate the colours for each line segment from the absolute value of the
+                // momentum
+                let colours: Vec<u8> = raw_positions.iter().map(|&p| (p[1].abs()/5.0 * 255.0) as u8).collect();
+                let positions: Vec<(f32, f32)> = raw_positions.iter().map(
+                    |&p|{map_point(p, ((-PI, PI), (-4.0, 4.0)), ((0.0, imgx as f64),(0.0, imgy as f64) ))} 
                     ).collect();
                 let z_pos = positions.iter().zip(positions.iter().skip(1));
 
-                for (p1, p2) in z_pos {
+                for (i, (p1, p2)) in z_pos.enumerate() {
+                    // If the phase diagram wraps around, don't draw the line
                     if dist(*p1, *p2) < 200.0 {
-                        draw_line_segment_mut(&mut img, *p1, *p2, image::Rgba([255, 0, 0, 255]));
+                        draw_line_segment_mut(&mut img, *p1, *p2, image::Rgba([colours[i], 0, 255-colours[i], 255]));
                     }
                 }
             }

@@ -11,7 +11,7 @@ use rayon::prelude::*;
 
 use imageproc::drawing::*;
 
-fn rk4_integrate(r: &Vector2<f64>, f: &Vec<&Fn(Vector2<f64>) -> f64>, h: f64) -> Vector2<f64> {
+fn rk4_integrate(r: &Vector2<f64>, f: &Vec<Box<Fn(Vector2<f64>) -> f64>>, h: f64) -> Vector2<f64> {
     let k1 = Vector2::new(f[0](*r), f[1](*r));
     let k2 = Vector2::new(f[0](*r+(h/2.0)*k1), f[1](*r+(h/2.0)*k1));
     let k3 = Vector2::new(f[0](*r+(h/2.0)*k2), f[1](*r+(h/2.0)*k2));
@@ -23,6 +23,8 @@ fn v2t(v: Vector2<f64>) -> (f32, f32) {(v[0] as f32*127.32+400.0, v[1] as f32*12
 fn pendulum_qdot(r: Vector2<f64>) -> f64 { r[1] }
 fn pendulum_pdot(r: Vector2<f64>) -> f64 { -r[0].sin() }
 fn attractor_pdot(r: Vector2<f64>) -> f64 { -r[0].sin()-r[1] }
+fn dissipate_qdot(r: Vector2<f64>) -> f64 { r[1] }
+fn gen_dissipate_pdot(a: f64, w: f64) -> Box<Fn(Vector2<f64>) -> f64> { Box::new( move |r| -2.0*a*r[1] - w.powf(2.0)*r[0].sin()) }
 fn map_val(x: f64, a: (f64, f64), b: (f64, f64)) -> f64 {
     (b.1-b.0)/(a.1-a.0)*(x-a.0)+b.0 
 }
@@ -34,19 +36,19 @@ fn dist(p1: (f32, f32), p2: (f32, f32)) -> f32 {
     ((p2.0-p1.0).powf(2.0)+(p2.1-p1.1).powf(2.0)).sqrt()
 }
 
-struct PhasePos<'a> {
+struct PhasePos {
     pos: Vector2<f64>,
     cur_pos: Vector2<f64>,
     bounds: Option<(f64, f64)>,
     bounds_l: f64,
-    vel: Vec<&'a Fn(Vector2<f64>) -> f64>,
+    vel: Vec<Box<Fn(Vector2<f64>) -> f64>>,
 }
 
-impl <'a>PhasePos<'a> {
-    fn new(p: Vector2<f64>, v: Vec<&'a Fn(Vector2<f64>) -> f64>) -> PhasePos<'a> {
+impl PhasePos {
+    fn new(p: Vector2<f64>, v: Vec<Box<Fn(Vector2<f64>) -> f64>>) -> PhasePos {
         PhasePos{pos: p, bounds: None, bounds_l: 0.0, cur_pos: p, vel: v}
     }
-    fn new_bounded(p: Vector2<f64>, b: (f64, f64), v: Vec<&'a Fn(Vector2<f64>) -> f64>) -> PhasePos<'a> {
+    fn new_bounded(p: Vector2<f64>, b: (f64, f64), v: Vec<Box<Fn(Vector2<f64>) -> f64>>) -> PhasePos {
         PhasePos{pos: p, bounds: Some(b), bounds_l: b.1-b.0, cur_pos: p, vel: v}
     } 
     fn wrap(&mut self, x: f64) -> f64 {
@@ -74,7 +76,7 @@ impl <'a>PhasePos<'a> {
     }
 }
 
-impl <'a>Iterator for PhasePos<'a> {
+impl Iterator for PhasePos {
     type Item = Vector2<f64>;
     fn next(&mut self) -> Option<Vector2<f64>> {
         let mut new_pos = rk4_integrate(&self.cur_pos, &self.vel, 0.01);
@@ -98,8 +100,8 @@ fn main() {
             for i in 0..n_line {
                 // Find the p value of the point; all q values are the same
                 // The p value changes at each frame
-                let p = map_val(i as f64 + f64::from(frame)/100.0, (0.0, n_line as f64), (-5.0, 5.0));
-                let system = PhasePos::new_bounded(Vector2::new(0.0, p), (-PI, PI), vec!(&pendulum_qdot, &pendulum_pdot));
+                let p = map_val(i as f64 + f64::from(frame)/100.0, (0.0, n_line as f64), (-12.0, 12.0));
+                let system = PhasePos::new_bounded(Vector2::new(0.0, p), (-PI, PI), vec!(Box::new(pendulum_qdot), gen_dissipate_pdot((2.0*PI*f64::from(frame)/100.0).sin(), 0.5)));
                 let raw_positions: Vec<Vector2<f64>> = system.take(20000).collect();
                 // Calculate the colours for each line segment from the absolute value of the
                 // momentum
